@@ -1,155 +1,218 @@
-import mesa
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from mesa import Agent, Model
-from mesa.time import RandomActivation
-from mesa.space import ContinuousSpace
+turtles-own
+[
+  vx                ;; x velocity
+  vy                ;; y velocity
+  desired-direction ;; my desired direction
+  driving-forcex    ;; my main motivating force
+  driving-forcey
+  obstacle-forcex   ;; force exerted by obstacles
+  obstacle-forcey
+  territorial-forcex;; force exerted by neighbors
+  territorial-forcey
+  status
+  vi
+  vf
+  vm
+  count-me-in
+]
 
-class Pedestrian(Agent):
-    def __init__(self, unique_id, model, pos, goal, speed, radius):
-        super().__init__(unique_id, model)
-        self.pos = pos
-        self.vel = np.zeros(2)
-        self.goal = goal
-        self.speed = speed
-        self.radius = radius
+globals
+[
+  total-times       ;; a list containing 10 accumulatfors for total time spent waiting by agents with the nth decile pushiness value
+  total-counts
+  vt       ;; a list containing 10 accumulatfors for total time spent waiting by agents with the nth decile pushiness value
+  d      ;; a list containing 10 accumulators or total times agents with the nth decile of pushiness was served
+  xc1
+  xc2
+]
 
-    def step(self):
-        self.update_velocity()
-        self.update_position()
+;; Set up the view
+to setup
+  ca
+  import-pcolors "map1.jpg"
+  set-default-shape turtles "circle"
+  ;; initialize the globals
+  set xc1 18
+  set xc2 20
+  set total-times (list 0 0 0 0 0 0 0 0 0 0)
+  set total-counts (list 0 0 0 0 0 0 0 0 0 0)
+  ;; create patrons
+  ask patches with [((pxcor >= 10 and pxcor <= 11) and (pycor >= -1 and pycor <= 0))]
+  [ set pcolor gray ]
+  ask patches with [((pxcor >= xc1 and pxcor <= xc2) and (pycor >= -2 and pycor <= 2))]
+  [ set pcolor yellow ]
+  create-turtles random 3
+  [
+    setxy 0 (-6 + random 12)
+    set count-me-in false
+    ;; give the turtles an initial nudge towards the goal
+    let init-direction 30 + random 90
+    set vx sin init-direction
+    set vy cos init-direction
+    set status random 2
+    color-turtle
+  ]
+  reset-ticks
+end
 
-    def update_velocity(self):
-        pass  # TODO: Implement the social force model rules to update the velocity of the agent
+;; run the simulation
+to go
+  if ticks mod 10 = 0
+  [
+    create-turtles patrons
+    [
+      setxy 0 (-6 + random 12)
+      set count-me-in false
+      ;; give the turtles an initial nudge towards the goal
+      let init-direction 30 + random 90
+      set vx sin init-direction
+      set vy cos init-direction
+      set status random 2
+      color-turtle
+    ]
+  ]
 
-    def update_position(self):
-        new_pos = self.pos + self.vel
-        self.model.space.move_agent(self, new_pos)
-        self.pos = new_pos
+  ask turtles with [xcor > 39]
+  [ die ]
 
-class TrainStationModel(Model):
-    def __init__(self, num_agents, width, height, exit_pos):
-        self.num_agents = num_agents
-        self.width = width
-        self.height = height
-        self.exit_pos = exit_pos
-        self.space = ContinuousSpace(width, height, True)
-        self.schedule = RandomActivation(self)
-        self.datacollector = mesa.DataCollector(
-            {
-                "Speed": lambda a: np.linalg.norm(a.vel),
-                "Density": lambda m: m.num_agents / (m.width * m.height),
-                "Flow": lambda m: m.datacollector.get_agent_vars_dataframe()["Exited"].sum() / self.schedule.time
-            }
-        )
-        self.agents = []
+  ;; run the social forces model on thirsty turtles
+  ;; calculate the forces first...
+  ask turtles
+  [
+    calc-desired-direction
+    calc-driving-force
+    calc-obstacle-force
+    if any? other turtles
+      [ calc-territorial-forces ]
+  ]
+  ;; then move the turtles and have them grow impatient if need be
+  ask turtles
+  [
+    move-turtle
+    color-turtle
+  ]
 
-        # Create agents
-        for i in range(self.num_agents):
-            pos = np.random.uniform(low=[0, 0], high=[self.width, self.height])
-            goal = np.random.uniform(low=[0, 0], high=[self.width, self.height])
-            speed = np.random.normal(loc=1.3, scale=0.3)
-            radius = np.random.normal(loc=0.3, scale=0.2)
-            a = Pedestrian(i, self, pos, goal, speed, radius)
-            self.space.place_agent(a, pos)
-            self.schedule.add(a)
-            self.agents.append(a)
+  ask turtles with [(xcor >= xc1 and xcor <= (xc1 + 1))][
+    set count-me-in true
+    set vi magnitude vx vy
+    print vi
+  ]
 
-    def step(self):
-        self.datacollector.collect(self)
-        self.schedule.step()
+  ask turtles with [(xcor >= xc2 and xcor <= (xc2 + 1))][
+    set vf magnitude vx vy
+    set vm mean (list vi vf)
 
-    def run_model(self, steps):
-        for i in range(steps):
-            self.step()
+    set vt mean [vm] of turtles with [count-me-in = true]
+    set d count turtles with [count-me-in = true]
+  ]
 
-class Pedestrian(Agent):
-    def __init__(self, unique_id, model, pos, goal, speed, radius):
-        super().__init__(unique_id, model)
-        self.pos = pos
-        self.vel = np.zeros(2)
-        self.goal = goal
-        self.speed = speed
-        self.radius = radius
+  ask turtles with [xcor >= (xc2 + 1)] [
+    set count-me-in false
+  ]
 
-    def step(self):
-        self.update_velocity()
-        self.update_position()
+  tick
+end
 
-    def update_velocity(self):
-        # TODO: Implement the social force model rules to update the velocity of the agent
-        pass
 
-    def update_position(self):
-        new_pos = self.pos + self.vel
-        self.model.space.move_agent(self, new_pos)
-        self.pos = new_pos
+;; color a turtle according to its pushiness
+to color-turtle
+  set color 19 - (patrons) * 4
+end
 
-    def is_exit_reached(self):
-        if np.linalg.norm(self.pos - self.model.exit_pos) < 1:
-            self.model.schedule.remove(self)
-            self.model.datacollector.add_agent(self, {"Exited": True})
+;; helper function to find the magnitude of a vector
+to-report magnitude [x y]
+  report sqrt ((x ^ 2) + (y ^ 2))
+end
 
-# Define the step function for the model
-def social_force_step(model):
-    for agent in model.schedule.agents:
-        agent.step()
-        if agent.is_exit_reached():
-            model.schedule.remove(agent)
+;; returns 1 if the angle between the desired vector and the force vector is within a threshold, else return c
+to-report field-of-view-modifier [desiredx desiredy forcex forcey]
+  ifelse (desiredx * (- forcex) + desiredy * (- forcey)) >= (magnitude forcex forcey) * cos (field-of-view / 2)
+  [ report 1 ]
+  [ report c]
+end
 
-# Define the visualization function
-def social_force_draw(agent):
-    return plt.Circle(agent.pos, agent.radius, color="red")
+;;;; Functions for calculating the social forces ;;;;
+;; move the turtle according to the rules of the social forces model
+to move-turtle
+  let ax driving-forcex + obstacle-forcex + territorial-forcex
+  let ay driving-forcey + obstacle-forcey + territorial-forcey
 
-# Define the simulation parameters
-num_agents = 50
-width = 50
-height = 50
-exit_pos = np.array([width / 2, height + 1])
+  set vx vx + ax
+  set vy vy + ay
 
-# Create the model object
-model = TrainStationModel(num_agents, width, height, exit_pos)
+  ;; scale down the velocity if it is too high
+  let vmag magnitude vx vy
+  let multiplier 1
+  if vmag > max-speed
+  [set multiplier max-speed / vmag]
 
-# Run the simulation for a certain number of steps
-model.run_model(100)
+  set vx vx * multiplier
+  set vy vy * multiplier
 
-# Plot the graph of speed over density, speed over flow, and density over flow
-data = model.datacollector.get_model_vars_dataframe()
-plt.scatter(data["Density"], data["Speed"])
-plt.xlabel("Density")
-plt.ylabel("Speed")
-plt.show()
+  ifelse status = 0
+  [
+    set xcor xcor + vx
+    set ycor ycor + vy
+  ] [
+    set xcor xcor + (vx / 2)
+    set ycor ycor + (vy / 2)
+  ]
+end
 
-plt.scatter(data["Flow"], data["Speed"])
-plt.xlabel("Flow")
-plt.ylabel("Speed")
-plt.show()
+;; find the territorial force according to the social forces model
+to calc-territorial-forces
+  set territorial-forcex 0
+  set territorial-forcey 0
+  ask other turtles with [distance myself > 0]
+  [
+    let to-agent (towards myself) - 180
+    let rabx [xcor] of myself - xcor
+    let raby [ycor] of myself - ycor
+    let speed magnitude vx vy
+    let to-root ((magnitude rabx raby) + (magnitude (rabx - (speed * sin desired-direction)) (raby - (speed * cos desired-direction)))) ^ 2 - speed ^ 2
+    if to-root < 0
+    [set to-root 0]
+    let b 0.5 * sqrt to-root
 
-plt.scatter(data["Density"], data["Flow"])
-plt.xlabel("Density")
-plt.ylabel("Flow")
-plt.show()
+    let agent-force (- v0) * exp (- b / sigma)
 
-# Export the data collected in the simulation as a CSV file
-df = model.datacollector.get_agent_vars_dataframe()
-df.to_csv("pedestrian_simulation_data.csv")
+    ask myself
+    [
+      let agent-forcex agent-force * (sin to-agent)
+      let agent-forcey agent-force * (cos to-agent)
+      ;; modify the effect this force has based on whether or not it is in the field of view
+      let vision field-of-view-modifier driving-forcex driving-forcey agent-forcex agent-forcey
+      set territorial-forcex territorial-forcex + agent-forcex * vision
+      set territorial-forcey territorial-forcey + agent-forcey * vision
+    ]
+  ]
+end
 
-# Visualize the simulation
-from mesa.visualization.modules import CanvasGrid
-from mesa.visualization.ModularVisualization import ModularServer
+;; find the obstacle force of the turtle according to the social forces model
+to calc-obstacle-force
+  set obstacle-forcex 0
+  set obstacle-forcey 0
+  ask patches with [pcolor = 14.9]
+  [
+    let to-obstacle (towards myself) - 180
+    let obstacle-force (- u0) * exp (- (distance myself) / r)
+    ask myself
+    [
+     set obstacle-forcex obstacle-forcex + obstacle-force * (sin to-obstacle)
+     set obstacle-forcey obstacle-forcey + obstacle-force * (cos to-obstacle)
+    ]
+  ]
+end
 
-canvas_element = CanvasGrid(social_force_draw, width, height, 500, 500)
-server = ModularServer(
-    TrainStationModel,
-    [canvas_element],
-    "Train Station Model",
-    {
-        "num_agents": num_agents,
-        "width": width,
-        "height": height,
-        "exit_pos": exit_pos,
-    },
-)
-server.port = 8521
+;; find the driving force of the turtle
+to calc-driving-force
+  set driving-forcex (1 / tau) * (max-speed * (sin desired-direction) - vx)
+  set driving-forcey (1 / tau) * (max-speed * (cos desired-direction) - vy)
+end
 
-server.launch()
+;; find the heading towards the nearest goal
+to calc-desired-direction
+  let goal min-one-of (patches with [pxcor = 39])
+  [ distance myself ]
+  set desired-direction towards goal
+end
